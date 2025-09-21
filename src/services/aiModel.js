@@ -1,4 +1,25 @@
-// AIモデル関連のロジックを集約
+// AIモデル関連のロジックを集約（セッション再利用でパフォーマンス最適化）
+
+const sessionCache = new Map() // language -> session
+const creatingSession = new Map() // language -> Promise
+
+async function getOrCreateSession(language = 'ja') {
+  if (sessionCache.has(language)) return sessionCache.get(language)
+  if (creatingSession.has(language)) return creatingSession.get(language)
+
+  const p = (async () => {
+    const session = await LanguageModel.create({ language })
+    sessionCache.set(language, session)
+    creatingSession.delete(language)
+    return session
+  })().catch((err) => {
+    creatingSession.delete(language)
+    throw err
+  })
+
+  creatingSession.set(language, p)
+  return p
+}
 
 export async function checkModelStatus(language = 'ja') {
   try {
@@ -7,6 +28,8 @@ export async function checkModelStatus(language = 'ja') {
     if (model.status) {
       switch (model.status) {
         case 'available':
+          // 取得できたセッションをキャッシュして後続で再利用
+          sessionCache.set(language, model)
           return { status: 'ready', message: 'モデルが利用可能です' }
         case 'downloading':
           return { status: 'downloading', message: 'モデルをダウンロード中です', progress: model.downloadProgress }
@@ -54,6 +77,14 @@ export async function startModelDownload(language = 'ja') {
   }
 }
 
+export async function warmupSession(language = 'ja') {
+  try {
+    await getOrCreateSession(language)
+  } catch (_) {
+    // 失敗しても致命的ではないので黙っておく
+  }
+}
+
 export async function promptAI({ message, context, history, language = 'ja' }) {
   const userName = context?.userName ? `${context.userName}さん` : 'ユーザー'
   const topicsText = context?.topics?.length ? `これまでの話題: ${context.topics.join(', ')}` : ''
@@ -63,7 +94,7 @@ export async function promptAI({ message, context, history, language = 'ja' }) {
     ? `\n\nこれまでの会話履歴:\n${recentHistory.map(msg => `${msg.sender === 'user' ? userName : 'AI'}: ${msg.text}`).join('\n')}`
     : ''
 
-  const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。
+  const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。背景情報は少し言葉が少ないです。
 
 ${topicsText ? `${topicsText}` : ''}${historyText}
 
@@ -72,11 +103,19 @@ ${userName}: ${message}
 
 AIエージェントとして、上記の会話履歴を参考に、${userName}の現在のメッセージ「${message}」に対して、これまでの会話でAIエージェントの応答に対するユーザーの満足度の推測、ユーザーの状況の推測、ユーザーの性格の推測、エージェントへの要求を思考し、応答してください。情報が不足していても、大胆に推測を交えて応答する方が満足してもらえる可能性が高いです。
 また、直近の話題から関連するトピックを推定してください。トピックは以下のようなカテゴリから選択してください：映画、プログラミング、寿司のネタ、人生相談、料理、音楽、スポーツ、旅行、仕事、趣味、勉強、健康、家族、友達、ペット、ゲーム、読書、アニメ、漫画、悪巧み、愚痴、その他。
-*出力はJSON形式とします。改行文字は"\n"としてエスケープしてください。*、{ "thinking": { "満足度の推測": "満足度の推測内容", "ユーザーの状況の推測": "ユーザーの状況の推測内容", "ユーザーの性格の推測": "ユーザーの性格の推測内容", "エージェントへの要求": "エージェントへの要求内容" }, "topics": ["トピック1", "トピック2"], "answer": "応答内容" }としてください。`
+*出力はJSON形式とします。文字列中に改行は出力せず、<br/>としてください。、{ "thinking": { "satisfaction_estimation": "満足度の推測内容", "user_situation": "ユーザーの状況の推測内容", "user_personality": "ユーザーの性格の推測内容", "agent_request": "エージェントへの要求内容" }, "topics": ["トピック1", "トピック2"], "answer": "応答内容" }としてください。`
 
   try {
-    const session = await LanguageModel.create({ language })
-    const response = await session.prompt(prompt)
+    let session = await getOrCreateSession(language)
+    let response
+    try {
+      response = await session.prompt(prompt)
+    } catch (e) {
+      // セッションが無効化/破棄などのケースでは作り直して1回だけ再試行
+      sessionCache.delete(language)
+      session = await getOrCreateSession(language)
+      response = await session.prompt(prompt)
+    }
 
     // JSONのコードフェンスをクリーニング
     let clean = (response || '').trim()
@@ -107,4 +146,3 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
     throw error
   }
 }
-

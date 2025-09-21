@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { checkModelStatus, startModelDownload, promptAI } from '../services/aiModel'
+import { checkModelStatus, startModelDownload, promptAI, warmupSession } from '../services/aiModel'
 
 export function useChat() {
   const [messages, setMessages] = useState([])
@@ -35,6 +35,10 @@ export function useChat() {
       const status = await checkModelStatus('ja')
       setModelStatus(status)
       setAiAvailable(['ready', 'downloading', 'downloadable'].includes(status.status))
+      if (status.status === 'ready') {
+        // セッションを先行生成してウォームアップ
+        warmupSession('ja')
+      }
 
       if (status.status === 'downloading') {
         const poll = async () => {
@@ -106,7 +110,11 @@ export function useChat() {
 
     try {
       // モデル状態の特別ケース
-      const status = await checkModelStatus('ja')
+      let status = modelStatus
+      if (!status || status.status !== 'ready') {
+        status = await checkModelStatus('ja')
+        setModelStatus(status)
+      }
       if (status.status === 'downloading') {
         const progressText = status.progress ? ` (${Math.round(status.progress * 100)}%完了)` : ''
         const aiMessageObj = {
