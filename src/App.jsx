@@ -79,6 +79,10 @@ function App() {
       const userMessageObj = { text: userMessage, sender: 'user', timestamp: new Date() }
       setMessages(prev => [...prev, userMessageObj])
       setConversationHistory(prev => [...prev, userMessageObj])
+      
+      // 会話コンテキストを更新
+      updateConversationContext(userMessage)
+      
       setInput('')
       setIsLoading(true)
       
@@ -127,8 +131,9 @@ ${topics ? `${topics}` : ''}${historyText}
 現在の会話:
 ${userName}: ${message}
 
-AIエージェントとして、上記の会話履歴を参考に、${userName}の現在のメッセージ「${message}」に対して、これまでの会話でAIエージェントの応答に対するユーザーの満足度の推測、ユーザーの状況の推測、ユーザーの性格の推測、エージェントへの要求を思考し、応答してください。
-出力はJSON形式とし、{ "thinking": { "満足度の推測": "満足度の推測内容", "ユーザーの状況の推測": "ユーザーの状況の推測内容", "ユーザーの性格の推測": "ユーザーの性格の推測内容", "エージェントへの要求": "エージェントへの要求内容" }, "answer": "応答内容" }としてください。`
+AIエージェントとして、上記の会話履歴を参考に、${userName}の現在のメッセージ「${message}」に対して、これまでの会話でAIエージェントの応答に対するユーザーの満足度の推測、ユーザーの状況の推測、ユーザーの性格の推測、エージェントへの要求を思考し、応答してください。情報が不足していても、大胆に推測を交えて応答する方が満足してもらえる可能性が高いです。
+また、直近の話題から関連するトピックを推定してください。トピックは以下のようなカテゴリから選択してください：映画、プログラミング、人生相談、料理、音楽、スポーツ、旅行、仕事、趣味、勉強、健康、家族、友達、ペット、ゲーム、読書、アニメ、漫画、その他。
+出力はJSON形式とし、{ "thinking": { "満足度の推測": "満足度の推測内容", "ユーザーの状況の推測": "ユーザーの状況の推測内容", "ユーザーの性格の推測": "ユーザーの性格の推測内容", "エージェントへの要求": "エージェントへの要求内容" }, "topics": ["トピック1", "トピック2"], "answer": "応答内容" }としてください。`
     
     try {
       console.log('Creating LanguageModel session...')
@@ -150,6 +155,15 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
         }
         
         const jsonResponse = JSON.parse(cleanResponse)
+        
+        // topicsを会話コンテキストに反映
+        if (jsonResponse.topics && Array.isArray(jsonResponse.topics)) {
+          setConversationContext(prev => ({
+            ...prev,
+            topics: [...new Set([...prev.topics, ...jsonResponse.topics])]
+          }))
+        }
+        
         return {
           displayText: jsonResponse.answer || response,
           fullResponse: JSON.stringify(jsonResponse, null, 2),
@@ -179,16 +193,6 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
           userName: nameMatch[1]
         }))
       }
-    }
-
-    // トピックの抽出
-    const topics = ['プログラミング', '料理', '映画', '音楽', 'スポーツ', '旅行', '仕事', '趣味', '勉強', '健康', '家族', '友達', 'ペット', 'ゲーム', '読書', 'アニメ', '漫画']
-    const foundTopics = topics.filter(topic => message.includes(topic))
-    if (foundTopics.length > 0) {
-      setConversationContext(prev => ({
-        ...prev,
-        topics: [...new Set([...prev.topics, ...foundTopics])]
-      }))
     }
   }
 
@@ -256,8 +260,16 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
               
               // 後方互換性のための安全な処理
               let displayText
+              let topics = []
               if (message.sender === 'ai' && message.isJson) {
                 displayText = isExpanded ? message.fullResponse : message.displayText
+                // JSONからtopicsを抽出
+                try {
+                  const jsonData = JSON.parse(message.fullResponse)
+                  topics = jsonData.topics || []
+                } catch {
+                  topics = []
+                }
               } else if (message.text) {
                 displayText = message.text
               } else {
@@ -272,9 +284,20 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
                   <div className="message-content">
                     <span className="message-text" dangerouslySetInnerHTML={{ __html: safeDisplayText.replace(/\n/g, '<br>') }}></span>
                     <div className="message-footer">
-                      <small className="message-time">
-                        {message.timestamp.toLocaleTimeString()}
-                      </small>
+                      <div className="message-footer-left">
+                        <small className="message-time">
+                          {message.timestamp.toLocaleTimeString()}
+                        </small>
+                        {message.sender === 'ai' && topics.length > 0 && (
+                          <div className="topic-tags">
+                            {topics.map((topic, topicIndex) => (
+                              <span key={topicIndex} className="topic-tag">
+                                {topic}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {message.sender === 'ai' && message.isJson && (
                         <button 
                           className="detail-button"
