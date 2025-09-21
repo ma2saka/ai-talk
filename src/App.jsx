@@ -84,7 +84,7 @@ function App() {
       }
     } else {
       console.log('PromptAPI not found, setting available to false')
-      setModelStatus({ status: 'not-available', message: 'AI機能が利用できません。Microsoft EdgeでPrompt APIが有効になっているか確認してください。' })
+      setModelStatus({ status: 'not-available', message: 'AI機能が利用できません。Chrome をお使いの場合、 chrome://flags/ でプロンプトAPIを有効にしてください。' })
       setAiAvailable(false)
     }
   }
@@ -292,7 +292,7 @@ function App() {
       ? `\n\nこれまでの会話履歴:\n${recentHistory.map(msg => `${msg.sender === 'user' ? userName : 'AI'}: ${msg.text}`).join('\n')}`
       : ''
     
-    const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。
+    const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。
 
 ${topics ? `${topics}` : ''}${historyText}
 
