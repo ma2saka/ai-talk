@@ -12,6 +12,7 @@ function App() {
   })
   const [conversationHistory, setConversationHistory] = useState([])
   const [expandedMessages, setExpandedMessages] = useState(new Set())
+  const [modelStatus, setModelStatus] = useState({ status: 'checking', message: 'AI機能を確認中...' })
   const messagesEndRef = useRef(null)
 
   // AI機能の利用可能性をチェック
@@ -46,10 +47,44 @@ function App() {
     
     // Chrome PromptAPIが利用可能かチェック（ユーザージェスチャーが必要なため、存在確認のみ）
     if (typeof LanguageModel !== 'undefined') {
-      console.log('PromptAPI found, setting available to true')
-      setAiAvailable(true)
+      console.log('PromptAPI found, checking model status...')
+      try {
+        const status = await checkModelStatus()
+        console.log('Model status:', status)
+        
+        // モデル状態を更新
+        setModelStatus(status)
+        
+        if (status.status === 'ready' || status.status === 'downloading' || status.status === 'downloadable') {
+          setAiAvailable(true)
+        } else {
+          setAiAvailable(false)
+        }
+        
+        // ダウンロード中の場合は定期的にチェック
+        if (status.status === 'downloading') {
+          const checkDownloadProgress = async () => {
+            const currentStatus = await checkModelStatus()
+            setModelStatus(currentStatus)
+            
+            if (currentStatus.status === 'downloading') {
+              setTimeout(checkDownloadProgress, 3000)
+            } else if (currentStatus.status === 'ready') {
+              setAiAvailable(true)
+            } else if (currentStatus.status === 'error') {
+              setAiAvailable(false)
+            }
+          }
+          setTimeout(checkDownloadProgress, 3000)
+        }
+      } catch (error) {
+        console.log('Error checking model status:', error)
+        setModelStatus({ status: 'error', message: 'AI機能の状態確認でエラーが発生しました。' })
+        setAiAvailable(false)
+      }
     } else {
       console.log('PromptAPI not found, setting available to false')
+      setModelStatus({ status: 'not-available', message: 'AI機能が利用できません。Microsoft EdgeでPrompt APIが有効になっているか確認してください。' })
       setAiAvailable(false)
     }
   }
@@ -114,7 +149,140 @@ function App() {
     }
   }
 
+  const checkModelStatus = async () => {
+    try {
+      // LanguageModelの状態をチェック
+      const model = await LanguageModel.create({ language: 'ja' })
+      
+      // モデルの状態を確認
+      if (model.status) {
+        switch (model.status) {
+          case 'available':
+            return { status: 'ready', message: 'モデルが利用可能です' }
+          case 'downloading':
+            return { status: 'downloading', message: 'モデルをダウンロード中です', progress: model.downloadProgress }
+          case 'downloadable':
+            return { status: 'downloadable', message: 'モデルをダウンロードできます' }
+          case 'not-available':
+            return { status: 'not-available', message: 'モデルが利用できません' }
+          default:
+            return { status: 'unknown', message: 'モデル状態が不明です' }
+        }
+      }
+      
+      // statusプロパティがない場合は、実際にプロンプトを送信してテスト
+      try {
+        await model.prompt('テスト')
+        return { status: 'ready', message: 'モデルが利用可能です' }
+      } catch (promptError) {
+        console.log('Prompt test error:', promptError)
+        if (promptError.message && promptError.message.includes('download')) {
+          return { status: 'downloading', message: 'モデルをダウンロード中です' }
+        }
+        return { status: 'error', message: 'モデルでエラーが発生しました' }
+      }
+    } catch (error) {
+      console.log('Model creation error:', error)
+      
+      // エラーメッセージから状態を判定
+      if (error.message) {
+        if (error.message.includes('download') || error.message.includes('downloading')) {
+          return { status: 'downloading', message: 'モデルをダウンロード中です' }
+        }
+        if (error.message.includes('not available') || error.message.includes('unavailable')) {
+          return { status: 'not-available', message: 'モデルが利用できません' }
+        }
+        if (error.message.includes('user gesture')) {
+          return { status: 'downloadable', message: 'モデルをダウンロードできます' }
+        }
+      }
+      
+      return { status: 'error', message: 'モデルの状態確認でエラーが発生しました' }
+    }
+  }
+
+  const startModelDownload = async () => {
+    try {
+      setModelStatus({ status: 'downloading', message: 'モデルのダウンロードを開始しています...' })
+      
+      // ユーザージェスチャーでモデルを作成してダウンロードを開始
+      const model = await LanguageModel.create({ language: 'ja' })
+      
+      // ダウンロード完了まで定期的にチェック
+      const checkDownloadProgress = async () => {
+        const currentStatus = await checkModelStatus()
+        setModelStatus(currentStatus)
+        
+        if (currentStatus.status === 'downloading') {
+          setTimeout(checkDownloadProgress, 3000)
+        } else if (currentStatus.status === 'ready') {
+          setAiAvailable(true)
+        } else if (currentStatus.status === 'error') {
+          setAiAvailable(false)
+        }
+      }
+      
+      // 3秒後にダウンロード状態をチェック
+      setTimeout(checkDownloadProgress, 3000)
+      
+    } catch (error) {
+      console.log('Download start error:', error)
+      setModelStatus({ status: 'error', message: 'ダウンロードの開始に失敗しました' })
+    }
+  }
+
   const getAIResponse = async (message) => {
+    // まずモデルの状態をチェック
+    const modelStatus = await checkModelStatus()
+    
+    if (modelStatus.status === 'downloading') {
+      const progressText = modelStatus.progress 
+        ? ` (${Math.round(modelStatus.progress * 100)}%完了)`
+        : ''
+      return {
+        displayText: `ダウンロード中...${progressText}`,
+        fullResponse: JSON.stringify({
+          status: 'downloading', 
+          message: modelStatus.message,
+          progress: modelStatus.progress
+        }, null, 2),
+        isJson: true
+      }
+    }
+    
+    if (modelStatus.status === 'downloadable') {
+      return {
+        displayText: 'モデルをダウンロードする必要があります。下のボタンをクリックしてダウンロードを開始してください。',
+        fullResponse: JSON.stringify({
+          status: 'downloadable', 
+          message: modelStatus.message
+        }, null, 2),
+        isJson: true
+      }
+    }
+    
+    if (modelStatus.status === 'not-available') {
+      return {
+        displayText: 'モデルが利用できません。ブラウザの設定を確認してください。',
+        fullResponse: JSON.stringify({
+          status: 'not-available', 
+          message: modelStatus.message
+        }, null, 2),
+        isJson: true
+      }
+    }
+    
+    if (modelStatus.status === 'error') {
+      return {
+        displayText: '申し訳ございません。AI機能でエラーが発生しました。',
+        fullResponse: JSON.stringify({
+          status: 'error', 
+          message: modelStatus.message
+        }, null, 2),
+        isJson: true
+      }
+    }
+
     const userName = conversationContext.userName ? `${conversationContext.userName}さん` : 'ユーザー'
     const topics = conversationContext.topics.length > 0 ? `これまでの話題: ${conversationContext.topics.join(', ')}` : ''
     
@@ -214,11 +382,11 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
           {aiAvailable !== null && (
             <div className="ai-status">
               {aiAvailable ? (
-                <span className="status-indicator available">
+                <span className="ai-status-indicator available">
                   ✅ AI機能利用可能
                 </span>
               ) : (
-                <span className="status-indicator unavailable">
+                <span className="ai-status-indicator unavailable">
                   ⚠️ AI機能利用不可
                 </span>
               )}
@@ -329,9 +497,23 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
           </button>
         </form>
         
-        {!aiAvailable && (
-          <div className="system-message">
-            ⚠️ PromptAPIが利用できません。chrome://flags/ から Prompt API を有効にしてください。
+        {(modelStatus.status === 'downloading' || modelStatus.status === 'downloadable' || modelStatus.status === 'error' || modelStatus.status === 'not-available') && (
+          <div className="model-status">
+            <div className={`model-status-indicator ${modelStatus.status}`}></div>
+            <span className="status-text">
+              {modelStatus.status === 'downloading' && modelStatus.progress 
+                ? `${modelStatus.message} (${Math.round(modelStatus.progress * 100)}%完了)`
+                : modelStatus.message
+              }
+            </span>
+            {modelStatus.status === 'downloadable' && (
+              <button 
+                className="download-button"
+                onClick={startModelDownload}
+              >
+                ダウンロード開始
+              </button>
+            )}
           </div>
         )}
       </main>

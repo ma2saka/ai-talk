@@ -77,7 +77,7 @@ body {
   margin-top: 0;
 }
 
-.status-indicator {
+.ai-status-indicator {
   display: inline-block;
   padding: 0.5rem 1rem;
   border-radius: 20px;
@@ -86,13 +86,13 @@ body {
   backdrop-filter: blur(10px);
 }
 
-.status-indicator.available {
+.ai-status-indicator.available {
   background: rgba(34, 197, 94, 0.2);
   border: 1px solid rgba(34, 197, 94, 0.3);
   color: #22c55e;
 }
 
-.status-indicator.unavailable {
+.ai-status-indicator.unavailable {
   background: rgba(245, 158, 11, 0.2);
   border: 1px solid rgba(245, 158, 11, 0.3);
   color: #f59e0b;
@@ -281,7 +281,7 @@ body {
 .detail-button {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.3);
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(120, 120, 120, 0.8);
   padding: 0.25rem 0.5rem;
   border-radius: 12px;
   font-size: 0.7rem;
@@ -317,6 +317,81 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   gap: 1rem;
+}
+
+.model-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.875rem;
+}
+
+.model-status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.model-status-indicator.checking {
+  background: #fbbf24;
+  animation: pulse 2s infinite;
+}
+
+.model-status-indicator.ready {
+  background: #10b981;
+}
+
+.model-status-indicator.downloading {
+  background: #3b82f6;
+  animation: pulse 2s infinite;
+}
+
+.model-status-indicator.error {
+  background: #ef4444;
+}
+
+.model-status-indicator.not-available {
+  background: #6b7280;
+}
+
+.model-status-indicator.downloadable {
+  background: #8b5cf6;
+  animation: pulse 2s infinite;
+}
+
+.status-text {
+  color: rgba(60, 60, 60, 0.8);
+}
+
+.download-button {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  border: none;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.download-button:hover {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  transform: translateY(-1px);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .message-input {
