@@ -3,7 +3,7 @@
 const sessionCache = new Map() // language -> session
 const creatingSession = new Map() // language -> Promise
 
-async function getOrCreateSession(language = 'ja') {
+export async function getOrCreateSession(language = 'ja') {
   if (sessionCache.has(language)) return sessionCache.get(language)
   if (creatingSession.has(language)) return creatingSession.get(language)
 
@@ -145,4 +145,86 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
   } catch (error) {
     throw error
   }
+}
+
+export async function isStreamingSupported(language = 'ja') {
+  try {
+    const session = await getOrCreateSession(language)
+    return typeof session?.promptStreaming === 'function'
+  } catch {
+    return false
+  }
+}
+
+export async function promptAIStream({ message, context, history, language = 'ja', onChunk }) {
+  const userName = context?.userName ? `${context.userName}さん` : 'ユーザー'
+  const topicsText = context?.topics?.length ? `これまでの話題: ${context.topics.join(', ')}` : ''
+  const recentHistory = (history || []).slice(-10)
+  const historyText = recentHistory.length > 0
+    ? `\n\nこれまでの会話履歴:\n${recentHistory.map(msg => `${msg.sender === 'user' ? userName : 'AI'}: ${msg.text}`).join('\n')}`
+    : ''
+
+  const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。
+
+${topicsText ? `${topicsText}` : ''}${historyText}
+
+現在の会話:
+${userName}: ${message}
+
+AIエージェントとして、上記の会話履歴を参考に、${userName}の現在のメッセージ「${message}」に対して、これまでの会話でAIエージェントの応答に対するユーザーの満足度の推測、ユーザーの状況の推測、ユーザーの性格の推測、エージェントへの要求を思考し、応答してください。情報が不足していても、大胆に推測を交えて応答する方が満足してもらえる可能性が高いです。
+また、直近の話題から関連するトピックを推定してください。トピックは以下のようなカテゴリから選択してください：映画、プログラミング、人生相談、料理、音楽、スポーツ、旅行、仕事、趣味、勉強、健康、家族、友達、ペット、ゲーム、読書、アニメ、漫画、その他。
+出力はJSON形式とし、{ "thinking": { "満足度の推測": "満足度の推測内容", "ユーザーの状況の推測": "ユーザーの状況の推測内容", "ユーザーの性格の推測": "ユーザーの性格の推測内容", "エージェントへの要求": "エージェントへの要求内容" }, "topics": ["トピック1", "トピック2"], "answer": "応答内容" }としてください。`
+
+  const session = await getOrCreateSession(language)
+  if (typeof session.promptStreaming !== 'function') {
+    // 非対応なら通常プロンプト
+    const res = await promptAI({ message, context, history, language })
+    return { finalText: res.isJson ? res.fullResponse : (res.displayText || ''), isJson: res.isJson }
+  }
+
+  const stream = await session.promptStreaming(prompt)
+  let finalText = ''
+
+  // 可能であれば非同期イテレータでチャンクを購読
+  if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+    for await (const chunk of stream) {
+      const delta = typeof chunk === 'string' ? chunk : (chunk?.text || '')
+      if (delta) {
+        finalText += delta
+        if (onChunk) onChunk(delta)
+      }
+    }
+    // 一部の実装では stream.response に最終文字列がある
+    if (stream.response && typeof stream.response.then === 'function') {
+      try { finalText = await stream.response } catch {}
+    }
+  } else if (stream && typeof stream.addEventListener === 'function') {
+    // イベント型（念のためのフォールバック）
+    finalText = await new Promise((resolve) => {
+      let acc = ''
+      const onMessage = (e) => {
+        const delta = e?.message || e?.data || ''
+        acc += delta
+        if (onChunk) onChunk(delta)
+      }
+      const onDone = async () => {
+        if (stream.response && typeof stream.response.then === 'function') {
+          try { acc = await stream.response } catch {}
+        }
+        cleanup(); resolve(acc)
+      }
+      const cleanup = () => {
+        try { stream.removeEventListener('message', onMessage) } catch {}
+        try { stream.removeEventListener('end', onDone) } catch {}
+      }
+      stream.addEventListener('message', onMessage)
+      stream.addEventListener('end', onDone)
+    })
+  } else {
+    // 不明な型は通常プロンプトへフォールバック
+    const res = await promptAI({ message, context, history, language })
+    return { finalText: res.isJson ? res.fullResponse : (res.displayText || ''), isJson: res.isJson }
+  }
+
+  return { finalText, isJson: false }
 }

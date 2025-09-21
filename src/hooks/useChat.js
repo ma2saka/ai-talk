@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { checkModelStatus, startModelDownload, promptAI, warmupSession } from '../services/aiModel'
+import { checkModelStatus, startModelDownload, promptAI, warmupSession, isStreamingSupported, promptAIStream } from '../services/aiModel'
 
 export function useChat() {
   const [messages, setMessages] = useState([])
@@ -150,19 +150,51 @@ export function useChat() {
         return
       }
 
-      // ステータス表示: 思考中（プロンプト送信開始直前）
+      // ストリーミング対応判定
       setAiEphemeral({ active: true, stage: 'thinking' })
+      const streaming = await isStreamingSupported('ja')
+      let aiMessageObj
+      if (streaming) {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`
+        setMessages(prev => [...prev, { id, sender: 'ai', text: '', timestamp: new Date(), streaming: true }])
 
-      const aiResponse = await promptAI({ message: userMessage, context: conversationContext, history: conversationHistory, language: 'ja' })
-      const aiMessageObj = { ...aiResponse, sender: 'ai', timestamp: new Date() }
+        const { finalText } = await promptAIStream({
+          message: userMessage,
+          context: conversationContext,
+          history: conversationHistory,
+          language: 'ja',
+          onChunk: (delta) => {
+            // 受信断片を追記
+            setMessages(prev => prev.map(m => m.id === id ? { ...m, text: (m.text || '') + delta } : m))
+          }
+        })
 
-      // topicsを会話コンテキストに反映
-      if (aiResponse.topics?.length) {
-        setConversationContext(prev => ({ ...prev, topics: [...new Set([...prev.topics, ...aiResponse.topics])] }))
+        // 最終テキストをJSONとして解釈
+        let responseObj
+        try {
+          let clean = (finalText || '').trim()
+          if (clean.startsWith('```json')) clean = clean.replace(/^```json\s*/, '').replace(/\s*```$/, '')
+          else if (clean.startsWith('```')) clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '')
+          responseObj = JSON.parse(clean)
+        } catch {}
+
+        if (responseObj && typeof responseObj === 'object') {
+          if (responseObj.topics?.length) {
+            setConversationContext(prev => ({ ...prev, topics: [...new Set([...prev.topics, ...responseObj.topics])] }))
+          }
+          aiMessageObj = { displayText: responseObj.answer || finalText, fullResponse: JSON.stringify(responseObj, null, 2), isJson: true, sender: 'ai', timestamp: new Date() }
+          setMessages(prev => prev.map(m => m.id === id ? aiMessageObj : m))
+        } else {
+          aiMessageObj = { text: finalText || '申し訳ございません。応答を生成できませんでした。', sender: 'ai', timestamp: new Date() }
+          setMessages(prev => prev.map(m => m.id === id ? aiMessageObj : m))
+        }
+      } else {
+        const aiResponse = await promptAI({ message: userMessage, context: conversationContext, history: conversationHistory, language: 'ja' })
+        aiMessageObj = { ...aiResponse, sender: 'ai', timestamp: new Date() }
+        setMessages(prev => [...prev, aiMessageObj])
       }
 
       setAiEphemeral({ active: false, stage: null })
-      setMessages(prev => [...prev, aiMessageObj])
       setConversationHistory(prev => [...prev, aiMessageObj])
     } catch (error) {
       const errorMessageObj = { text: '申し訳ございません。エラーが発生しました。', sender: 'ai', timestamp: new Date() }
