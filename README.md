@@ -1,8 +1,10 @@
 # AI Talk
 
-AIとの対話を楽しむモダンなWebアプリケーションです。
+AIとの対話を楽しむモダンなWebアプリケーションです。Chrome v140以降を前提にしています。サーバーサイドと通信はしません。
 
-cursor-agent により実装されています。
+ほぼ cursur-agent により実装されています。
+
+https://ma2saka.github.io/ai-talk/
 
 ## 🚀 機能
 
