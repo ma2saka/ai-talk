@@ -6,6 +6,9 @@ function App() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [aiAvailable, setAiAvailable] = useState(null)
+  const [voiceEnabled, setVoiceEnabled] = useState(false)
+  const [isRecognizing, setIsRecognizing] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(false)
   const [conversationContext, setConversationContext] = useState({
     userName: null,
     topics: []
@@ -14,10 +17,19 @@ function App() {
   const [expandedMessages, setExpandedMessages] = useState(new Set())
   const [modelStatus, setModelStatus] = useState({ status: 'checking', message: 'AI機能を確認中...' })
   const messagesEndRef = useRef(null)
+  const recognitionRef = useRef(null)
 
   // AI機能の利用可能性をチェック
   useEffect(() => {
     checkAIAvailability()
+  }, [])
+
+  // ブラウザ対応状況の確認（クライアントのみ）
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const supported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window
+      setSpeechSupported(supported)
+    }
   }, [])
 
   // メッセージが更新されたら最新までスクロール
@@ -40,6 +52,60 @@ function App() {
       return newSet
     })
   }
+
+  // 音声入力の有効/無効化に応じて認識エンジンを制御
+  useEffect(() => {
+    // 無効化時は停止&解放
+    if (!voiceEnabled) {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.onend = null } catch {}
+        try { recognitionRef.current.stop() } catch {}
+      }
+      setIsRecognizing(false)
+      return
+    }
+
+    // 有効化するが未対応のブラウザ
+    if (!speechSupported) {
+      setVoiceEnabled(false)
+      return
+    }
+
+    // 認識エンジンの作成
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'ja-JP'
+    recognition.interimResults = false
+    recognition.continuous = true
+
+    recognition.onstart = () => setIsRecognizing(true)
+    recognition.onerror = () => setIsRecognizing(false)
+    recognition.onend = () => {
+      setIsRecognizing(false)
+      // トグルがONのままなら再開（モバイルや一定時間で終了するため）
+      if (voiceEnabled) {
+        try { recognition.start() } catch {}
+      }
+    }
+    recognition.onresult = async (event) => {
+      const lastIndex = event.results.length - 1
+      const result = event.results[lastIndex]
+      if (!result) return
+      const transcript = (result[0] && result[0].transcript ? result[0].transcript : '').trim()
+      if (transcript) {
+        await sendMessage(transcript)
+      }
+    }
+
+    recognitionRef.current = recognition
+    try { recognition.start() } catch {}
+
+    return () => {
+      try { recognition.onend = null } catch {}
+      try { recognition.stop() } catch {}
+      setIsRecognizing(false)
+    }
+  }, [voiceEnabled, speechSupported])
 
   const checkAIAvailability = async () => {
     console.log('Checking AI availability...')
@@ -91,61 +157,65 @@ function App() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
-    if (input.trim() && !isLoading && aiAvailable) {
-      const userMessage = input.trim()
-      
-      // デバッグ用ログ表示
-      if (userMessage === '/log') {
-        const logMessage = `会話履歴 (${conversationHistory.length}件):\n${conversationHistory.map(msg => {
-          // 新しいメッセージ構造と古いメッセージ構造の両方に対応
-          const messageText = msg.displayText || msg.text || 'メッセージなし'
-          return `${msg.sender}: ${messageText}`
-        }).join('\n')}`
-        setMessages(prev => [...prev, { text: logMessage, sender: 'system', timestamp: new Date() }])
-        setInput('')
-        // テキストボックスにフォーカスを戻す
-        setTimeout(() => {
-          const inputElement = document.querySelector('.message-input')
-          if (inputElement) inputElement.focus()
-        }, 0)
-        return
-      }
-      
-      const userMessageObj = { text: userMessage, sender: 'user', timestamp: new Date() }
-      setMessages(prev => [...prev, userMessageObj])
-      setConversationHistory(prev => [...prev, userMessageObj])
-      
-      // 会話コンテキストを更新
-      updateConversationContext(userMessage)
-      
+    const value = input.trim()
+    if (!value) return
+    await sendMessage(value)
+  }
+
+  // 入力文字列をチャットに即送信（テキスト/音声共通）
+  const sendMessage = async (userMessage) => {
+    if (!userMessage) return
+    if (isLoading || !aiAvailable) return
+
+    // デバッグ用ログ表示
+    if (userMessage === '/log') {
+      const logMessage = `会話履歴 (${conversationHistory.length}件):\n${conversationHistory.map(msg => {
+        const messageText = msg.displayText || msg.text || 'メッセージなし'
+        return `${msg.sender}: ${messageText}`
+      }).join('\n')}`
+      setMessages(prev => [...prev, { text: logMessage, sender: 'system', timestamp: new Date() }])
       setInput('')
-      setIsLoading(true)
-      
-      try {
-        const aiResponse = await getAIResponse(userMessage)
-        const aiMessageObj = { 
-          ...aiResponse, 
-          sender: 'ai', 
-          timestamp: new Date() 
-        }
-        setMessages(prev => [...prev, aiMessageObj])
-        setConversationHistory(prev => [...prev, aiMessageObj])
-      } catch (error) {
-        const errorMessageObj = { 
-          text: '申し訳ございません。エラーが発生しました。', 
-          sender: 'ai', 
-          timestamp: new Date() 
-        }
-        setMessages(prev => [...prev, errorMessageObj])
-        setConversationHistory(prev => [...prev, errorMessageObj])
-      } finally {
-        setIsLoading(false)
-        // テキストボックスにフォーカスを戻す
-        setTimeout(() => {
-          const inputElement = document.querySelector('.message-input')
-          if (inputElement) inputElement.focus()
-        }, 0)
+      setTimeout(() => {
+        const inputElement = document.querySelector('.message-input')
+        if (inputElement) inputElement.focus()
+      }, 0)
+      return
+    }
+
+    const userMessageObj = { text: userMessage, sender: 'user', timestamp: new Date() }
+    setMessages(prev => [...prev, userMessageObj])
+    setConversationHistory(prev => [...prev, userMessageObj])
+
+    // 会話コンテキストを更新
+    updateConversationContext(userMessage)
+
+    setInput('')
+    setIsLoading(true)
+
+    try {
+      const aiResponse = await getAIResponse(userMessage)
+      const aiMessageObj = {
+        ...aiResponse,
+        sender: 'ai',
+        timestamp: new Date()
       }
+      setMessages(prev => [...prev, aiMessageObj])
+      setConversationHistory(prev => [...prev, aiMessageObj])
+    } catch (error) {
+      const errorMessageObj = {
+        text: '申し訳ございません。エラーが発生しました。',
+        sender: 'ai',
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMessageObj])
+      setConversationHistory(prev => [...prev, errorMessageObj])
+    } finally {
+      setIsLoading(false)
+      // テキストボックスにフォーカスを戻す
+      setTimeout(() => {
+        const inputElement = document.querySelector('.message-input')
+        if (inputElement) inputElement.focus()
+      }, 0)
     }
   }
 
@@ -322,7 +392,9 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
           cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '')
         }
         
+        console.log('Clean response:', cleanResponse)
         const jsonResponse = JSON.parse(cleanResponse)
+        console.log('JSON response:', jsonResponse)
         
         // topicsを会話コンテキストに反映
         if (jsonResponse.topics && Array.isArray(jsonResponse.topics)) {
@@ -392,6 +464,17 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
               )}
             </div>
           )}
+          <button
+            className={`voice-toggle ${voiceEnabled ? 'active' : ''}`}
+            onClick={() => setVoiceEnabled(v => !v)}
+            title={speechSupported ? (voiceEnabled ? '音声入力: ON' : '音声入力: OFF') : 'このブラウザは音声入力に非対応です'}
+            disabled={!speechSupported || !aiAvailable}
+          >
+            {voiceEnabled ? '🎙️ 音声 ON' : '🎤 音声 OFF'}
+            {voiceEnabled && (
+              <span className={`mic-indicator ${isRecognizing ? 'listening' : 'idle'}`} />
+            )}
+          </button>
           <button 
             className="reset-button" 
             onClick={resetConversation}
@@ -440,6 +523,9 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
                 }
               } else if (message.text) {
                 displayText = message.text
+              } else if (message.displayText) {
+                // AI応答がJSONでない場合の表示（fallback）
+                displayText = message.displayText
               } else {
                 displayText = ''
               }
@@ -454,7 +540,7 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
                     <div className="message-footer">
                       <div className="message-footer-left">
                         <small className="message-time">
-                          {message.timestamp.toLocaleTimeString()}
+                          {message.timestamp instanceof Date ? message.timestamp.toLocaleTimeString() : new Date(message.timestamp).toLocaleTimeString()}
                         </small>
                         {message.sender === 'ai' && topics.length > 0 && (
                           <div className="topic-tags">
