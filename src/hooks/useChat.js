@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { checkModelStatus, startModelDownload, promptAI, warmupSession, isStreamingSupported, promptAIStream } from '../services/aiModel'
+import { checkModelStatus, startModelDownload, promptAI, warmupSession, isStreamingSupported, promptAIStream, summarizeHistory } from '../services/aiModel'
 
 export function useChat() {
   const [messages, setMessages] = useState([])
@@ -8,6 +8,8 @@ export function useChat() {
   const [aiAvailable, setAiAvailable] = useState(null)
   const [speechDraft, setSpeechDraft] = useState('')
   const [aiEphemeral, setAiEphemeral] = useState({ active: false, stage: null })
+  const [conversationSummary, setConversationSummary] = useState('')
+  const [isSummarizing, setIsSummarizing] = useState(false)
   const [conversationContext, setConversationContext] = useState({ userName: null, topics: [] })
   const [conversationHistory, setConversationHistory] = useState([])
   const [expandedMessages, setExpandedMessages] = useState(new Set())
@@ -85,10 +87,11 @@ export function useChat() {
     if (!userMessage || isLoading || !aiAvailable) return
 
     if (userMessage === '/log') {
-      const logMessage = `会話履歴 (${conversationHistory.length}件):\n${conversationHistory.map(msg => {
+      const aiTurns = conversationHistory.filter(m => m.sender === 'ai').length
+      const logMessage = `会話履歴 (${conversationHistory.length}件, AI応答 ${aiTurns}件):\n${conversationHistory.map(msg => {
         const messageText = msg.displayText || msg.text || 'メッセージなし'
         return `${msg.sender}: ${messageText}`
-      }).join('\n')}`
+      }).join('\n')}\n\n要約: ${conversationSummary || '(なし)'}\n要約中: ${isSummarizing ? 'はい' : 'いいえ'}`
       setMessages(prev => [...prev, { text: logMessage, sender: 'system', timestamp: new Date() }])
       setInput('')
       return
@@ -162,6 +165,7 @@ export function useChat() {
           message: userMessage,
           context: conversationContext,
           history: conversationHistory,
+          summary: conversationSummary,
           language: 'ja',
           onChunk: (delta) => {
             // 受信断片を追記
@@ -189,13 +193,30 @@ export function useChat() {
           setMessages(prev => prev.map(m => m.id === id ? aiMessageObj : m))
         }
       } else {
-        const aiResponse = await promptAI({ message: userMessage, context: conversationContext, history: conversationHistory, language: 'ja' })
+        const aiResponse = await promptAI({ message: userMessage, context: conversationContext, history: conversationHistory, summary: conversationSummary, language: 'ja' })
         aiMessageObj = { ...aiResponse, sender: 'ai', timestamp: new Date() }
         setMessages(prev => [...prev, aiMessageObj])
       }
 
       setAiEphemeral({ active: false, stage: null })
       setConversationHistory(prev => [...prev, aiMessageObj])
+
+      // 4会話（= AI応答4件）ごとに要約を更新
+      const newHistory = conversationHistory.concat([aiMessageObj])
+      const aiTurns = newHistory.filter(m => m.sender === 'ai').length
+      if (!isSummarizing && aiTurns > 0 && aiTurns % 4 === 0) {
+        setIsSummarizing(true)
+        ;(async () => {
+          const res = await summarizeHistory({ history: newHistory, language: 'ja' })
+          if (res.summary) setConversationSummary(res.summary)
+          if (res.topics?.length) {
+            setConversationContext(prev => ({ ...prev, topics: [...new Set([...prev.topics, ...res.topics])] }))
+          }
+          // 履歴は直近8件（概ね直近4会話分）だけ残す
+          setConversationHistory(h => h.slice(-8))
+          setIsSummarizing(false)
+        })()
+      }
     } catch (error) {
       const errorMessageObj = { text: '申し訳ございません。エラーが発生しました。', sender: 'ai', timestamp: new Date() }
       setAiEphemeral({ active: false, stage: null })
@@ -231,6 +252,8 @@ export function useChat() {
     expandedMessages,
     modelStatus,
     aiEphemeral,
+    conversationSummary,
+    isSummarizing,
     // actions
     setInput,
     setSpeechDraft,

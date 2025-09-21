@@ -13,6 +13,7 @@ function App() {
     expandedMessages,
     modelStatus,
     aiEphemeral,
+    isSummarizing,
     setInput,
     setSpeechDraft,
     toggleMessageExpansion,
@@ -58,6 +59,9 @@ function App() {
             {voiceEnabled ? '🎙️ 音声 ON' : '🎤 音声 OFF'}
             {voiceEnabled && (<span className={`mic-indicator ${isRecognizing ? 'listening' : 'idle'}`} />)}
           </button>
+          {isSummarizing && (
+            <span className="ai-status-indicator available" title="会話の要約を更新しています">🧾 要約中</span>
+          )}
           <button className="reset-button" onClick={resetConversation} title="会話をリセット">🔄 リセット</button>
         </div>
       </header>

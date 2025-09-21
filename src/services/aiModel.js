@@ -85,7 +85,7 @@ export async function warmupSession(language = 'ja') {
   }
 }
 
-export async function promptAI({ message, context, history, language = 'ja' }) {
+export async function promptAI({ message, context, history, language = 'ja', summary = '' }) {
   const userName = context?.userName ? `${context.userName}さん` : 'ユーザー'
   const topicsText = context?.topics?.length ? `これまでの話題: ${context.topics.join(', ')}` : ''
 
@@ -94,9 +94,11 @@ export async function promptAI({ message, context, history, language = 'ja' }) {
     ? `\n\nこれまでの会話履歴:\n${recentHistory.map(msg => `${msg.sender === 'user' ? userName : 'AI'}: ${msg.text}`).join('\n')}`
     : ''
 
-  const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。背景情報は少し言葉が少ないです。
+  const summaryText = summary ? `これまでの要約:\n${summary}\n` : ''
 
-${topicsText ? `${topicsText}` : ''}${historyText}
+  const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。
+
+${summaryText}${topicsText ? `${topicsText}` : ''}${historyText}
 
 現在の会話:
 ${userName}: ${message}
@@ -156,7 +158,7 @@ export async function isStreamingSupported(language = 'ja') {
   }
 }
 
-export async function promptAIStream({ message, context, history, language = 'ja', onChunk }) {
+export async function promptAIStream({ message, context, history, language = 'ja', onChunk, summary = '' }) {
   const userName = context?.userName ? `${context.userName}さん` : 'ユーザー'
   const topicsText = context?.topics?.length ? `これまでの話題: ${context.topics.join(', ')}` : ''
   const recentHistory = (history || []).slice(-10)
@@ -164,16 +166,18 @@ export async function promptAIStream({ message, context, history, language = 'ja
     ? `\n\nこれまでの会話履歴:\n${recentHistory.map(msg => `${msg.sender === 'user' ? userName : 'AI'}: ${msg.text}`).join('\n')}`
     : ''
 
+  const summaryText = summary ? `これまでの要約:\n${summary}\n` : ''
+
   const prompt = `あなたはAI Talkという対話アプリケーションのAIエージェントです。${userName}と自然な日本語で会話してください。もっとも最近の発言の意図に合わせて、自然な応答をします。ユーザーが質問を望んでいない場合は共感を示すに留めたり、話題を変えたりします。ユーザーが書き込んでいないことを決めつけて書かないようにします。
 
-${topicsText ? `${topicsText}` : ''}${historyText}
+${summaryText}${topicsText ? `${topicsText}` : ''}${historyText}
 
 現在の会話:
 ${userName}: ${message}
 
 AIエージェントとして、上記の会話履歴を参考に、${userName}の現在のメッセージ「${message}」に対して、これまでの会話でAIエージェントの応答に対するユーザーの満足度の推測、ユーザーの状況の推測、ユーザーの性格の推測、エージェントへの要求を思考し、応答してください。情報が不足していても、大胆に推測を交えて応答する方が満足してもらえる可能性が高いです。
-また、直近の話題から関連するトピックを推定してください。トピックは以下のようなカテゴリから選択してください：映画、プログラミング、人生相談、料理、音楽、スポーツ、旅行、仕事、趣味、勉強、健康、家族、友達、ペット、ゲーム、読書、アニメ、漫画、その他。
-出力はJSON形式とし、{ "thinking": { "満足度の推測": "満足度の推測内容", "ユーザーの状況の推測": "ユーザーの状況の推測内容", "ユーザーの性格の推測": "ユーザーの性格の推測内容", "エージェントへの要求": "エージェントへの要求内容" }, "topics": ["トピック1", "トピック2"], "answer": "応答内容" }としてください。`
+また、直近の話題から関連するトピックを推定してください。トピックは以下のようなカテゴリから選択してください：映画、プログラミング、寿司のネタ、人生相談、料理、音楽、スポーツ、旅行、仕事、趣味、勉強、健康、家族、友達、ペット、ゲーム、読書、アニメ、漫画、悪巧み、愚痴、その他。
+*出力はJSON形式とします。文字列中に改行は出力せず、<br/>としてください。、{ "thinking": { "satisfaction_estimation": "満足度の推測内容", "user_situation": "ユーザーの状況の推測内容", "user_personality": "ユーザーの性格の推測内容", "agent_request": "エージェントへの要求内容" }, "topics": ["トピック1", "トピック2"], "answer": "応答内容" }としてください。`
 
   const session = await getOrCreateSession(language)
   if (typeof session.promptStreaming !== 'function') {
@@ -227,4 +231,21 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
   }
 
   return { finalText, isJson: false }
+}
+
+export async function summarizeHistory({ history, language = 'ja' }) {
+  const recent = (history || []).slice(-40)
+  const plain = recent.map(m => `${m.sender === 'user' ? 'ユーザー' : 'AI'}: ${m.text ?? m.displayText ?? ''}`).join('\n')
+  const prompt = `以下の会話を、重要な文脈を失わず400文字程度で日本語要約してください。ユーザーの名前、固有名詞や依頼内容、結論は省略しないでください。JSONで {\"summary\":\"要約\",\"topics\":[\"トピック1\",\"トピック2\"],\"key_facts\":[\"事実1\",\"事実2\"]} の形式で返してください。\n\n会話:\n${plain}`
+  try {
+    const session = await getOrCreateSession(language)
+    const res = await session.prompt(prompt)
+    let clean = (res || '').trim()
+    if (clean.startsWith('```json')) clean = clean.replace(/^```json\s*/, '').replace(/\s*```$/, '')
+    else if (clean.startsWith('```')) clean = clean.replace(/^```\s*/, '').replace(/\s*```$/, '')
+    const json = JSON.parse(clean)
+    return { summary: json.summary || '', topics: Array.isArray(json.topics) ? json.topics : [], key_facts: Array.isArray(json.key_facts) ? json.key_facts : [] }
+  } catch (e) {
+    return { summary: '', topics: [], key_facts: [] }
+  }
 }
