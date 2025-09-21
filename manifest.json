@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "AI Talk",
+  "version": "1.0.0",
+  "description": "AIとの対話を楽しむWebアプリケーション",
+  "permissions": [
+    "ai",
+    "summarizer"
+  ],
+  "host_permissions": [
+    "https://*/*"
+  ],
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "AI Talk"
+  },
+  "icons": {
+    "16": "public/vite.svg",
+    "48": "public/vite.svg",
+    "128": "public/vite.svg"
+  }
+}
