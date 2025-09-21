@@ -284,6 +284,68 @@ body {
   color: rgba(255, 255, 255, 0.9);
 }
 
+.message.ai .message-content.ephemeral {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.status-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  color: #ffffff; /* 高コントラスト（ダーク） */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.status-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.status-steps .step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+.status-steps .step .icon { font-size: 1rem; }
+.status-steps .step .label { font-size: 0.85rem; font-weight: 600; }
+.status-steps .step.active { opacity: 1; }
+
+/* 状態バブル内のテキスト/アイコン色を明示（ダーク） */
+.status-bubble .label,
+.status-bubble .icon { color: #ffffff !important; }
+
+.typing {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-left: 0.25rem;
+}
+.typing i {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  opacity: 0.6;
+  display: inline-block;
+  border-radius: 50%;
+  animation: typing 1.2s infinite ease-in-out;
+}
+.typing i:nth-child(2) { animation-delay: 0.15s; }
+.typing i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes typing {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+  40% { transform: translateY(-3px); opacity: 1; }
+}
+
 .message.system .message-content {
   background: rgba(59, 130, 246, 0.2);
   border: 1px solid rgba(59, 130, 246, 0.3);
@@ -297,6 +359,11 @@ body {
 .message-text {
   font-size: 1rem;
   line-height: 1.5;
+}
+
+.message-text.draft {
+  opacity: 0.7;
+  font-style: italic;
 }
 
 .message-text pre {
@@ -529,6 +596,15 @@ body {
     border: 1px solid rgba(0, 0, 0, 0.1);
     color: rgba(0, 0, 0, 0.8);
   }
+
+  /* 状態バブル（ライト）: 背景と文字色のコントラストを確保 */
+  .status-bubble {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.2);
+    color: #1f2937; /* Gray-800 */
+  }
+  .status-bubble .label,
+  .status-bubble .icon { color: #111827 !important; }
 
   .message-input {
     border: 1px solid rgba(0, 0, 0, 0.2);

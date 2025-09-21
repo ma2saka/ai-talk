@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 
-export function useSpeechInput({ onText, enabledWhen = true } = {}) {
+export function useSpeechInput({ onText, onInterim, enabledWhen = true } = {}) {
   const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [isRecognizing, setIsRecognizing] = useState(false)
   const [speechSupported, setSpeechSupported] = useState(false)
   const recognitionRef = useRef(null)
   const onTextRef = useRef(onText)
+  const onInterimRef = useRef(onInterim)
 
   // 最新のコールバック参照を維持（再初期化を防ぐ）
   useEffect(() => {
     onTextRef.current = onText
   }, [onText])
+
+  useEffect(() => {
+    onInterimRef.current = onInterim
+  }, [onInterim])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -36,7 +41,7 @@ export function useSpeechInput({ onText, enabledWhen = true } = {}) {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     const recognition = new SpeechRecognition()
     recognition.lang = 'ja-JP'
-    recognition.interimResults = false
+    recognition.interimResults = true
     recognition.continuous = true
 
     recognition.onstart = () => setIsRecognizing(true)
@@ -48,12 +53,16 @@ export function useSpeechInput({ onText, enabledWhen = true } = {}) {
       }
     }
     recognition.onresult = async (event) => {
-      const lastIndex = event.results.length - 1
-      const result = event.results[lastIndex]
-      const transcript = (result?.[0]?.transcript || '').trim()
-      if (transcript && onTextRef.current) {
-        onTextRef.current(transcript)
+      let interim = ''
+      let finalText = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const res = event.results[i]
+        if (!res || !res[0]) continue
+        if (res.isFinal) finalText += res[0].transcript
+        else interim += res[0].transcript
       }
+      if (interim && onInterimRef.current) onInterimRef.current(interim.trim())
+      if (finalText && onTextRef.current) onTextRef.current(finalText.trim())
     }
 
     recognitionRef.current = recognition

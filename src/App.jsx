@@ -9,9 +9,12 @@ function App() {
     input,
     isLoading,
     aiAvailable,
+    speechDraft,
     expandedMessages,
     modelStatus,
+    aiEphemeral,
     setInput,
+    setSpeechDraft,
     toggleMessageExpansion,
     beginModelDownload,
     sendMessage,
@@ -20,7 +23,8 @@ function App() {
   } = useChat()
 
   const { voiceEnabled, setVoiceEnabled, isRecognizing, speechSupported } = useSpeechInput({
-    onText: (text) => sendMessage(text),
+    onText: (text) => { setSpeechDraft(''); sendMessage(text) },
+    onInterim: (text) => setSpeechDraft(text),
     enabledWhen: !!aiAvailable,
   })
 
@@ -28,7 +32,7 @@ function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, speechDraft])
 
   return (
     <div className="app">
@@ -102,7 +106,7 @@ function App() {
 
               return (
                 <div key={index} className={`message ${message.sender}`}>
-                  <div className="message-content">
+                  <div className={`message-content ${message.ephemeral ? 'ephemeral' : ''}`}>
                     <span className="message-text" dangerouslySetInnerHTML={{ __html: safeDisplayText.replace(/\n/g, '<br>') }}></span>
                     <div className="message-footer">
                       <div className="message-footer-left">
@@ -127,6 +131,39 @@ function App() {
                 </div>
               )
             })
+          )}
+          {aiEphemeral.active && (
+            <div className="message ai">
+              <div className="message-content ephemeral status-bubble">
+                <div className="status-steps">
+                  <div className={`step ${aiEphemeral.stage === 'received' || aiEphemeral.stage === 'sent' || aiEphemeral.stage === 'thinking' ? 'active' : ''}`}>
+                    <span className="icon">📥</span>
+                    <span className="label">メッセージ受信</span>
+                  </div>
+                  <div className={`step ${aiEphemeral.stage === 'sent' || aiEphemeral.stage === 'thinking' ? 'active' : ''}`}>
+                    <span className="icon">📤</span>
+                    <span className="label">AIへ送信</span>
+                  </div>
+                  <div className={`step ${aiEphemeral.stage === 'thinking' ? 'active' : ''}`}>
+                    <span className="icon">🧠</span>
+                    <span className="label">思考</span>
+                    {aiEphemeral.stage === 'thinking' && <span className="typing"><i></i><i></i><i></i></span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {speechDraft && (
+            <div className="message user">
+              <div className="message-content">
+                <span className="message-text draft">{speechDraft}</span>
+                <div className="message-footer">
+                  <div className="message-footer-left">
+                    <small className="message-time">音声入力中...</small>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -164,4 +201,3 @@ function App() {
 }
 
 export default App
-

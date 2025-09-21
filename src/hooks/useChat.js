@@ -6,6 +6,8 @@ export function useChat() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [aiAvailable, setAiAvailable] = useState(null)
+  const [speechDraft, setSpeechDraft] = useState('')
+  const [aiEphemeral, setAiEphemeral] = useState({ active: false, stage: null })
   const [conversationContext, setConversationContext] = useState({ userName: null, topics: [] })
   const [conversationHistory, setConversationHistory] = useState([])
   const [expandedMessages, setExpandedMessages] = useState(new Set())
@@ -93,7 +95,14 @@ export function useChat() {
     setConversationHistory(prev => [...prev, userMessageObj])
     updateConversationContext(userMessage)
     setInput('')
+    setSpeechDraft('')
     setIsLoading(true)
+
+    // ステータス表示: 受信 → 送信（即時）
+    setAiEphemeral({ active: true, stage: 'received' })
+    setTimeout(() => setAiEphemeral({ active: true, stage: 'sent' }), 1000)
+
+    // 以降の一時表示は aiEphemeral をUIで描画（バブルはmessagesに追加しない）
 
     try {
       // モデル状態の特別ケース
@@ -107,6 +116,7 @@ export function useChat() {
           sender: 'ai',
           timestamp: new Date()
         }
+        setAiEphemeral({ active: false, stage: null })
         setMessages(prev => [...prev, aiMessageObj])
         setConversationHistory(prev => [...prev, aiMessageObj])
         setIsLoading(false)
@@ -125,11 +135,15 @@ export function useChat() {
           sender: 'ai',
           timestamp: new Date()
         }
+        setAiEphemeral({ active: false, stage: null })
         setMessages(prev => [...prev, aiMessageObj])
         setConversationHistory(prev => [...prev, aiMessageObj])
         setIsLoading(false)
         return
       }
+
+      // ステータス表示: 思考中（プロンプト送信開始直前）
+      setAiEphemeral({ active: true, stage: 'thinking' })
 
       const aiResponse = await promptAI({ message: userMessage, context: conversationContext, history: conversationHistory, language: 'ja' })
       const aiMessageObj = { ...aiResponse, sender: 'ai', timestamp: new Date() }
@@ -139,10 +153,12 @@ export function useChat() {
         setConversationContext(prev => ({ ...prev, topics: [...new Set([...prev.topics, ...aiResponse.topics])] }))
       }
 
+      setAiEphemeral({ active: false, stage: null })
       setMessages(prev => [...prev, aiMessageObj])
       setConversationHistory(prev => [...prev, aiMessageObj])
     } catch (error) {
       const errorMessageObj = { text: '申し訳ございません。エラーが発生しました。', sender: 'ai', timestamp: new Date() }
+      setAiEphemeral({ active: false, stage: null })
       setMessages(prev => [...prev, errorMessageObj])
       setConversationHistory(prev => [...prev, errorMessageObj])
     } finally {
@@ -169,12 +185,15 @@ export function useChat() {
     input,
     isLoading,
     aiAvailable,
+    speechDraft,
     conversationContext,
     conversationHistory,
     expandedMessages,
     modelStatus,
+    aiEphemeral,
     // actions
     setInput,
+    setSpeechDraft,
     toggleMessageExpansion,
     checkAIAvailability,
     beginModelDownload,
@@ -184,4 +203,3 @@ export function useChat() {
     setMessages,
   }
 }
-
