@@ -11,6 +11,7 @@ function App() {
     topics: []
   })
   const [conversationHistory, setConversationHistory] = useState([])
+  const [expandedMessages, setExpandedMessages] = useState(new Set())
   const messagesEndRef = useRef(null)
 
   // AI機能の利用可能性をチェック
@@ -25,6 +26,18 @@ function App() {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const toggleMessageExpansion = (index) => {
+    setExpandedMessages(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(index)) {
+        newSet.delete(index)
+      } else {
+        newSet.add(index)
+      }
+      return newSet
+    })
   }
 
   const checkAIAvailability = async () => {
@@ -48,7 +61,11 @@ function App() {
       
       // デバッグ用ログ表示
       if (userMessage === '/log') {
-        const logMessage = `会話履歴 (${conversationHistory.length}件):\n${conversationHistory.map(msg => `${msg.sender}: ${msg.text}`).join('\n')}`
+        const logMessage = `会話履歴 (${conversationHistory.length}件):\n${conversationHistory.map(msg => {
+          // 新しいメッセージ構造と古いメッセージ構造の両方に対応
+          const messageText = msg.displayText || msg.text || 'メッセージなし'
+          return `${msg.sender}: ${messageText}`
+        }).join('\n')}`
         setMessages(prev => [...prev, { text: logMessage, sender: 'system', timestamp: new Date() }])
         setInput('')
         // テキストボックスにフォーカスを戻す
@@ -67,7 +84,11 @@ function App() {
       
       try {
         const aiResponse = await getAIResponse(userMessage)
-        const aiMessageObj = { text: aiResponse, sender: 'ai', timestamp: new Date() }
+        const aiMessageObj = { 
+          ...aiResponse, 
+          sender: 'ai', 
+          timestamp: new Date() 
+        }
         setMessages(prev => [...prev, aiMessageObj])
         setConversationHistory(prev => [...prev, aiMessageObj])
       } catch (error) {
@@ -120,11 +141,27 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
       
       // JSON形式の応答をチェックしてフォーマット
       try {
-        const jsonResponse = JSON.parse(response)
-        return JSON.stringify(jsonResponse, null, 2)
+        // マークダウンのコードブロックを除去
+        let cleanResponse = response.trim()
+        if (cleanResponse.startsWith('```json')) {
+          cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '')
+        } else if (cleanResponse.startsWith('```')) {
+          cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '')
+        }
+        
+        const jsonResponse = JSON.parse(cleanResponse)
+        return {
+          displayText: jsonResponse.answer || response,
+          fullResponse: JSON.stringify(jsonResponse, null, 2),
+          isJson: true
+        }
       } catch {
         // JSONでない場合はそのまま返す
-        return response || '申し訳ございません。応答を生成できませんでした。'
+        return {
+          displayText: response || '申し訳ございません。応答を生成できませんでした。',
+          fullResponse: response || '申し訳ございません。応答を生成できませんでした。',
+          isJson: false
+        }
       }
     } catch (error) {
       console.error('LanguageModel API error:', error)
@@ -167,8 +204,8 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🤖 AI Talk</h1>
-        <p>AIとの対話を楽しもう</p>
+        <h1>Chrome Local AI Talk</h1>
+        <p>Google Chromeの組み込みAIと会話しよう</p>
         <div className="header-controls">
           {aiAvailable !== null && (
             <div className="ai-status">
@@ -214,16 +251,43 @@ AIエージェントとして、上記の会話履歴を参考に、${userName}�
               </div>
             </div>
           ) : (
-            messages.map((message, index) => (
-              <div key={index} className={`message ${message.sender}`}>
-                <div className="message-content">
-                  <span className="message-text" dangerouslySetInnerHTML={{ __html: message.text.replace(/\n/g, '<br>') }}></span>
-                  <small className="message-time">
-                    {message.timestamp.toLocaleTimeString()}
-                  </small>
+            messages.map((message, index) => {
+              const isExpanded = expandedMessages.has(index)
+              
+              // 後方互換性のための安全な処理
+              let displayText
+              if (message.sender === 'ai' && message.isJson) {
+                displayText = isExpanded ? message.fullResponse : message.displayText
+              } else if (message.text) {
+                displayText = message.text
+              } else {
+                displayText = ''
+              }
+              
+              // displayTextが文字列でない場合の安全な処理
+              const safeDisplayText = typeof displayText === 'string' ? displayText : String(displayText || '')
+              
+              return (
+                <div key={index} className={`message ${message.sender}`}>
+                  <div className="message-content">
+                    <span className="message-text" dangerouslySetInnerHTML={{ __html: safeDisplayText.replace(/\n/g, '<br>') }}></span>
+                    <div className="message-footer">
+                      <small className="message-time">
+                        {message.timestamp.toLocaleTimeString()}
+                      </small>
+                      {message.sender === 'ai' && message.isJson && (
+                        <button 
+                          className="detail-button"
+                          onClick={() => toggleMessageExpansion(index)}
+                        >
+                          {isExpanded ? 'hide' : 'detail'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
           <div ref={messagesEndRef} />
         </div>
